@@ -47,13 +47,13 @@ async def task_product_discovery():
             cj = CJDropshippingService()
 
             # Step 1: AI discovers 15 trending products
-            trending = await discovery.discover_trending_products(count=15)
+            trending = await discovery.discover_trending_products(count=8)
             log.info("automation.product_discovery.ai_found", count=len(trending))
 
             await cj.authenticate()
 
             added = 0
-            for product_idea in trending[:10]:  # Process top 10
+            for product_idea in trending[:8]:  # Process top 8
                 try:
                     # Step 2: Search CJDropshipping for this product
                     cj_results = await cj.search_products(

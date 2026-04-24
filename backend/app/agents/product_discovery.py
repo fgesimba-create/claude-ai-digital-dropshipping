@@ -51,8 +51,8 @@ class ProductDiscoveryAgent:
         log.info("product_discovery.starting", count=count)
 
         response = await self.client.messages.create(
-            model="claude-opus-4-7",
-            max_tokens=4096,
+            model="claude-sonnet-4-6",
+            max_tokens=8096,
             system=[
                 {
                     "type": "text",
