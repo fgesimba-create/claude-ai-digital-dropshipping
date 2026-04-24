@@ -25,7 +25,7 @@ async function ProductGrid({ searchParams }: { searchParams: Awaited<PageProps["
   if (searchParams.min_price) params.min_price = searchParams.min_price;
   if (searchParams.max_price) params.max_price = searchParams.max_price;
 
-  const data = await getProducts(params);
+  const data = await getProducts(params).catch(() => ({ products: [], total: 0, page: 1, pages: 0 }));
 
   if (!data.products?.length) {
     return (
@@ -69,7 +69,7 @@ async function ProductGrid({ searchParams }: { searchParams: Awaited<PageProps["
 
 export default async function ProductsPage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const categories = await getCategories();
+  const categories = await getCategories().catch(() => []);
 
   const sortOptions = [
     { value: "featured", label: "Featured" },

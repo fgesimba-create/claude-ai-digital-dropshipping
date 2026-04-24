@@ -18,7 +18,7 @@ const CATEGORY_ICONS: Record<string, React.ElementType> = {
 };
 
 async function FeaturedProducts() {
-  const products = await getFeaturedProducts();
+  const products = await getFeaturedProducts().catch(() => []);
   if (!products?.length) return null;
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
@@ -30,7 +30,7 @@ async function FeaturedProducts() {
 }
 
 async function TrendingProducts() {
-  const products = await getTrendingProducts();
+  const products = await getTrendingProducts().catch(() => []);
   if (!products?.length) return null;
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
@@ -42,7 +42,7 @@ async function TrendingProducts() {
 }
 
 async function CategoryGrid() {
-  const categories = await getCategories();
+  const categories = await getCategories().catch(() => []);
   if (!categories?.length) return null;
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
