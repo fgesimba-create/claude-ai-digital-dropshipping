@@ -33,7 +33,7 @@ class SupplierProduct(Base):
     __tablename__ = "supplier_products"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    supplier_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    supplier_id: Mapped[str] = mapped_column(String(36), ForeignKey("suppliers.id"), nullable=False)
     supplier_product_id: Mapped[str] = mapped_column(String(255), nullable=False)
     supplier_sku: Mapped[str] = mapped_column(String(255), nullable=True)
 
