@@ -57,11 +57,12 @@ async def get_dashboard(
     _: dict = Depends(get_current_admin),
 ):
     """Main admin dashboard — real-time store metrics."""
-    today = date.today().isoformat()
+    today = date.today()
+    tomorrow = today + timedelta(days=1)
 
     # Today's orders
     orders_result = await db.execute(
-        select(Order).where(func.date(Order.created_at) == today)
+        select(Order).where(Order.created_at >= today, Order.created_at < tomorrow)
     )
     today_orders = orders_result.scalars().all()
 
