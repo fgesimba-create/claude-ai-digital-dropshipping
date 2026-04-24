@@ -65,7 +65,8 @@ export default function AdminDashboard() {
     const token = localStorage.getItem("admin_token");
     if (!token) { router.push("/admin"); return; }
     try {
-      const res = await fetch("/api/admin/dashboard", {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const res = await fetch(`${apiUrl}/api/admin/dashboard`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.status === 401) { router.push("/admin"); return; }
@@ -87,7 +88,8 @@ export default function AdminDashboard() {
     const token = localStorage.getItem("admin_token");
     setTriggering(task);
     try {
-      await fetch(`/api/admin/automation/trigger/${task}`, {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      await fetch(`${apiUrl}/api/admin/automation/trigger/${task}`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
