@@ -74,15 +74,7 @@ function CheckoutForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <PaymentElement
-        options={{
-          layout: "tabs",
-          appearance: {
-            theme: "night",
-            variables: { colorPrimary: "#2563eb", colorBackground: "#1f2937" },
-          },
-        }}
-      />
+      <PaymentElement options={{ layout: "tabs" }} />
       {error && (
         <div className="p-4 bg-red-900/30 border border-red-800 rounded-lg text-red-300 text-sm">
           {error}
