@@ -13,7 +13,7 @@ class AnalyticsEvent(Base):
     product_id: Mapped[str] = mapped_column(String(36), nullable=True)
     order_id: Mapped[str] = mapped_column(String(36), nullable=True)
     session_id: Mapped[str] = mapped_column(String(100), nullable=True)
-    metadata: Mapped[dict] = mapped_column(JSON, default=dict)
+    event_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
