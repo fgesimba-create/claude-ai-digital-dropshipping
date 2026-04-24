@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { Suspense } from "react";
 import { getFeaturedProducts, getTrendingProducts, getCategories } from "@/lib/api";
 import { ProductCard, ProductCardSkeleton } from "@/components/ProductCard";
