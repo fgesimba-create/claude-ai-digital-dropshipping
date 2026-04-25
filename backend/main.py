@@ -120,11 +120,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Security headers
-if settings.environment == "production":
+# Security headers — only enforce trusted hosts when a real domain is configured
+_store_host = settings.store_domain.replace("https://", "").replace("http://", "").split(":")[0]
+if settings.environment == "production" and _store_host not in ("localhost", "127.0.0.1"):
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=[settings.store_domain.replace("https://", "").replace("http://", ""), "localhost"],
+        allowed_hosts=[_store_host, f"www.{_store_host}", "localhost", "backend"],
     )
 
 # Mount all API routes
