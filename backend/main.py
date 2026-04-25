@@ -6,7 +6,6 @@ import structlog
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from app.database import init_db
 from app.api import router
 from app.automation.scheduler import scheduler, setup_scheduler
@@ -21,25 +20,20 @@ async def lifespan(app: FastAPI):
     """Initialize database, seed default data, start automation scheduler."""
     log.info("startup.beginning", store=settings.store_name)
 
-    # Initialize database tables
     await init_db()
     log.info("startup.database_ready")
 
-    # Seed default categories if empty
     await seed_default_data()
 
-    # Start the automation scheduler
     setup_scheduler()
     scheduler.start()
     log.info("startup.scheduler_started", jobs=len(scheduler.get_jobs()))
 
-    # Trigger initial product discovery if store is empty
     await maybe_trigger_initial_discovery()
 
     log.info("startup.complete", store=settings.store_name)
     yield
 
-    # Shutdown
     scheduler.shutdown(wait=False)
     log.info("shutdown.complete")
 
@@ -52,7 +46,6 @@ async def seed_default_data():
     from sqlalchemy import select
 
     async with AsyncSessionLocal() as db:
-        # Check if already seeded
         result = await db.execute(select(ProductCategory).limit(1))
         if result.scalar_one_or_none():
             return
@@ -107,28 +100,18 @@ app = FastAPI(
     description="AI-powered dropshipping platform API",
     version="1.0.0",
     lifespan=lifespan,
-    docs_url="/api/docs" if settings.environment != "production" else None,
+    docs_url="/api/docs",
     redoc_url=None,
 )
 
-# CORS — allow frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.store_domain, "http://localhost:3000", "http://localhost:8000", "http://127.0.0.1:3000", "http://127.0.0.1:8000"],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Security headers — only enforce trusted hosts when a real domain is configured
-_store_host = settings.store_domain.replace("https://", "").replace("http://", "").split(":")[0]
-if settings.environment == "production" and _store_host not in ("localhost", "127.0.0.1"):
-    app.add_middleware(
-        TrustedHostMiddleware,
-        allowed_hosts=[_store_host, f"www.{_store_host}", "localhost", "backend"],
-    )
-
-# Mount all API routes
 app.include_router(router, prefix="/api")
 
 
