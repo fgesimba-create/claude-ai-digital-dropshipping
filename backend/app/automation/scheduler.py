@@ -23,13 +23,56 @@ settings = get_settings()
 
 scheduler = AsyncIOScheduler(timezone="UTC")
 
+# Fallback images per category when CJDropshipping is unavailable
+_CATEGORY_IMAGES = {
+    "wireless-audio": [
+        "https://images.unsplash.com/photo-1583394838336-acd977736f90?w=600&q=80",
+        "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=600&q=80",
+        "https://images.unsplash.com/photo-1484704849700-f032a568e944?w=600&q=80",
+    ],
+    "mobile-accessories": [
+        "https://images.unsplash.com/photo-1609091839311-d5365f9ff1c5?w=600&q=80",
+        "https://images.unsplash.com/photo-1591799264318-7e6ef8ddb7ea?w=600&q=80",
+        "https://images.unsplash.com/photo-1585771724684-38269d6639fd?w=600&q=80",
+    ],
+    "smart-home": [
+        "https://images.unsplash.com/photo-1558002038-1055907df827?w=600&q=80",
+        "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=600&q=80",
+    ],
+    "gaming": [
+        "https://images.unsplash.com/photo-1593508512255-86ab42a8e620?w=600&q=80",
+        "https://images.unsplash.com/photo-1612287230202-1ff1d85d1bdf?w=600&q=80",
+        "https://images.unsplash.com/photo-1547394765-185e1e68f34e?w=600&q=80",
+    ],
+    "wearables": [
+        "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&q=80",
+        "https://images.unsplash.com/photo-1579586337278-3befd40fd17a?w=600&q=80",
+    ],
+    "laptop-desk": [
+        "https://images.unsplash.com/photo-1593640408182-31c228cbcf42?w=600&q=80",
+        "https://images.unsplash.com/photo-1541807084-5c52b6b3adef?w=600&q=80",
+    ],
+    "led-lighting": [
+        "https://images.unsplash.com/photo-1547347298-4074fc3086f0?w=600&q=80",
+        "https://images.unsplash.com/photo-1565814329452-e1efa11c5b89?w=600&q=80",
+    ],
+    "cameras-drones": [
+        "https://images.unsplash.com/photo-1567521464027-f127ff144326?w=600&q=80",
+        "https://images.unsplash.com/photo-1473968512647-3e447244af8f?w=600&q=80",
+    ],
+    "default": [
+        "https://images.unsplash.com/photo-1468495244123-6c6c332eeece?w=600&q=80",
+        "https://images.unsplash.com/photo-1526738549149-8e07eca6c147?w=600&q=80",
+    ],
+}
+
 
 # ─── PRODUCT DISCOVERY ──────────────────────────────────────────────────────
 
 async def task_product_discovery():
     """
     AI discovers trending tech products, evaluates them,
-    sources from CJDropshipping, generates content, and lists them.
+    sources from CJDropshipping (or falls back to AI-only data), then lists them.
     """
     log.info("automation.product_discovery.starting")
     async with AsyncSessionLocal() as db:
@@ -46,49 +89,79 @@ async def task_product_discovery():
             content_agent = ContentAgent()
             cj = CJDropshippingService()
 
-            # Step 1: AI discovers 15 trending products
+            # Step 1: AI discovers trending products
             trending = await discovery.discover_trending_products(count=8)
             log.info("automation.product_discovery.ai_found", count=len(trending))
 
-            await cj.authenticate()
+            # Step 2: Try to authenticate with CJDropshipping (non-blocking)
+            cj_available = False
+            try:
+                await cj.authenticate()
+                cj_available = True
+                log.info("automation.cj_connected")
+            except Exception as e:
+                log.warning("automation.cj_unavailable", error=str(e),
+                            msg="Will create products from AI data without live supplier pricing")
+
+            # Find or create supplier record once
+            supplier_result = await db.execute(
+                select(Supplier).where(Supplier.api_name == "cjdropshipping")
+            )
+            supplier = supplier_result.scalar_one_or_none()
+            if not supplier:
+                supplier = Supplier(
+                    name="CJDropshipping",
+                    api_name="cjdropshipping",
+                    website="https://cjdropshipping.com",
+                )
+                db.add(supplier)
+                await db.flush()
 
             added = 0
-            for product_idea in trending[:8]:  # Process top 8
+            for product_idea in trending[:8]:
                 try:
-                    # Step 2: Search CJDropshipping for this product
-                    cj_results = await cj.search_products(
-                        product_idea["cj_search_term"], page_size=5
-                    )
-                    cj_products = cj_results.get("list", [])
-                    if not cj_products:
-                        log.warning("automation.no_cj_product", term=product_idea["cj_search_term"])
-                        continue
+                    cj_product = None
+                    cost_usd = product_idea.get("estimated_supplier_cost_usd", 15.0)
 
-                    cj_product = cj_products[0]
-                    cost_usd = float(cj_product.get("sellPrice", 0))
-                    if cost_usd == 0:
-                        continue
+                    # Step 3: Try to find product on CJDropshipping
+                    if cj_available:
+                        try:
+                            cj_results = await cj.search_products(
+                                product_idea["cj_search_term"], page_size=5
+                            )
+                            cj_list = cj_results.get("list", [])
+                            if cj_list:
+                                cj_product = cj_list[0]
+                                cj_cost = float(cj_product.get("sellPrice", 0))
+                                if cj_cost > 0:
+                                    cost_usd = cj_cost
+                        except Exception as e:
+                            log.warning("automation.cj_search_failed",
+                                        term=product_idea["cj_search_term"], error=str(e))
 
-                    # Step 3: AI evaluates this specific product
+                    # Step 4: AI evaluates this specific product
                     evaluation = await discovery.evaluate_product({
                         **product_idea,
                         "actual_cj_cost": cost_usd,
-                        "cj_product_id": cj_product.get("pid"),
+                        "cj_product_id": cj_product.get("pid") if cj_product else None,
                     })
 
-                    if not evaluation.get("should_list", False):
+                    if not evaluation.get("should_list", True):
                         log.info("automation.product_rejected", name=product_idea["name"],
                                  reason=evaluation.get("rejection_reason"))
                         continue
 
-                    # Step 4: Generate AI content
+                    # Step 5: Generate AI content
                     product_content = await content_agent.generate_product_content({
                         **product_idea,
                         "cost_price": cost_usd,
-                        "sale_price": evaluation.get("recommended_sale_price_usd", cost_usd * settings.target_profit_multiplier),
+                        "sale_price": evaluation.get(
+                            "recommended_sale_price_usd",
+                            cost_usd * settings.target_profit_multiplier,
+                        ),
                     })
 
-                    # Step 5: Find or create category
+                    # Step 6: Find or create category
                     cat_slug = product_idea.get("recommended_category_slug", "electronics")
                     cat_result = await db.execute(
                         select(ProductCategory).where(ProductCategory.slug == cat_slug)
@@ -102,36 +175,24 @@ async def task_product_discovery():
                         db.add(category)
                         await db.flush()
 
-                    # Step 6: Find or create supplier record
-                    supplier_result = await db.execute(
-                        select(Supplier).where(Supplier.api_name == "cjdropshipping")
-                    )
-                    supplier = supplier_result.scalar_one_or_none()
-                    if not supplier:
-                        supplier = Supplier(
-                            name="CJDropshipping",
-                            api_name="cjdropshipping",
-                            website="https://cjdropshipping.com",
-                        )
-                        db.add(supplier)
-                        await db.flush()
-
-                    # Step 7: Create product slug
+                    # Step 7: Build slug and check for duplicates
                     base_name = product_content.get("name", product_idea["name"])
                     slug = re.sub(r"[^a-z0-9]+", "-", base_name.lower()).strip("-")
-
-                    # Check for duplicate slug
                     existing = await db.execute(
                         select(Product).where(Product.slug == slug)
                     )
                     if existing.scalar_one_or_none():
-                        slug = f"{slug}-{cj_product.get('pid', '')[:6]}"
+                        import uuid
+                        slug = f"{slug}-{str(uuid.uuid4())[:6]}"
 
-                    sale_price = evaluation.get("recommended_sale_price_usd",
-                                                cost_usd * settings.target_profit_multiplier)
+                    sale_price = evaluation.get(
+                        "recommended_sale_price_usd",
+                        cost_usd * settings.target_profit_multiplier,
+                    )
                     compare_at_price = round(sale_price * 1.25, 2)
+                    trend_score = evaluation.get("ai_trend_score", product_idea.get("trend_score", 7.0))
 
-                    # Step 8: Save product to database
+                    # Step 8: Save product
                     product = Product(
                         name=product_content.get("name", base_name),
                         slug=slug,
@@ -141,45 +202,55 @@ async def task_product_discovery():
                         sale_price=round(sale_price, 2),
                         compare_at_price=compare_at_price,
                         supplier_id=supplier.id,
-                        supplier_product_id=cj_product.get("pid"),
-                        supplier_sku=cj_product.get("vid", cj_product.get("pid")),
+                        supplier_product_id=cj_product.get("pid") if cj_product else None,
+                        supplier_sku=cj_product.get("vid", cj_product.get("pid")) if cj_product else None,
                         category_id=category.id,
                         meta_title=product_content.get("meta_title"),
                         meta_description=product_content.get("meta_description"),
                         tags=product_content.get("tags", []),
                         ships_from="CN/US Warehouse",
                         estimated_delivery_days="5-10 business days",
-                        ai_trend_score=evaluation.get("ai_trend_score", 5.0),
-                        ai_profit_score=evaluation.get("ai_profit_score", 5.0),
+                        ai_trend_score=float(trend_score),
+                        ai_profit_score=float(evaluation.get("ai_profit_score", 7.0)),
                         is_active=True,
-                        is_trending=evaluation.get("ai_trend_score", 0) >= 7.5,
-                        is_featured=evaluation.get("ai_trend_score", 0) >= 8.5,
+                        is_trending=float(trend_score) >= 7.5,
+                        is_featured=float(trend_score) >= 8.5,
                     )
                     db.add(product)
                     await db.flush()
 
-                    # Step 9: Add product images from CJDropshipping
-                    images = cj_product.get("productImage", "").split(",")
-                    for i, img_url in enumerate(images[:5]):
-                        if img_url.strip():
-                            img = ProductImage(
-                                product_id=product.id,
-                                url=img_url.strip(),
-                                alt_text=product.name,
-                                position=i,
-                                is_primary=(i == 0),
-                            )
-                            db.add(img)
+                    # Step 9: Add images (CJ images if available, else category fallbacks)
+                    image_urls = []
+                    if cj_product and cj_product.get("productImage"):
+                        image_urls = [
+                            u.strip()
+                            for u in cj_product["productImage"].split(",")
+                            if u.strip()
+                        ][:5]
+
+                    if not image_urls:
+                        fallback_pool = _CATEGORY_IMAGES.get(cat_slug, _CATEGORY_IMAGES["default"])
+                        image_urls = fallback_pool
+
+                    for i, img_url in enumerate(image_urls):
+                        db.add(ProductImage(
+                            product_id=product.id,
+                            url=img_url,
+                            alt_text=product.name,
+                            position=i,
+                            is_primary=(i == 0),
+                        ))
 
                     await db.commit()
                     added += 1
-                    log.info("automation.product_added", name=product.name, price=product.sale_price)
+                    log.info("automation.product_added", name=product.name,
+                             price=product.sale_price, via_cj=bool(cj_product))
 
                 except Exception as e:
                     log.error("automation.product_add_error", product=product_idea.get("name"), error=str(e))
                     await db.rollback()
 
-            log.info("automation.product_discovery.complete", added=added)
+            log.info("automation.product_discovery.complete", added=added, cj_used=cj_available)
 
         except Exception as e:
             log.error("automation.product_discovery.failed", error=str(e))
@@ -245,9 +316,7 @@ async def task_inventory_sync():
             from app.models.product import Product
             from sqlalchemy import select
 
-            cj = CJDropshippingService()
-            await cj.authenticate()
-
+            # Only sync products that have a CJ supplier product ID
             result = await db.execute(
                 select(Product).where(
                     Product.is_active == True,
@@ -255,6 +324,17 @@ async def task_inventory_sync():
                 )
             )
             products = result.scalars().all()
+
+            if not products:
+                log.info("automation.inventory_sync.skipped", reason="no supplier-linked products")
+                return
+
+            cj = CJDropshippingService()
+            try:
+                await cj.authenticate()
+            except Exception as e:
+                log.warning("automation.inventory_sync.cj_auth_failed", error=str(e))
+                return
 
             supplier_ids = [p.supplier_product_id for p in products if p.supplier_product_id]
             inventory = await cj.sync_inventory(supplier_ids[:50])
@@ -271,15 +351,12 @@ async def task_inventory_sync():
                         product.is_active = False
                         log.info("automation.product_deactivated_no_stock", name=product.name)
                     elif abs(new_cost - product.cost_price) > 0.50:
-                        # Cost changed significantly, re-price
                         product.cost_price = new_cost
-                        from app.config import get_settings
-                        s = get_settings()
-                        product.sale_price = round(new_cost * s.target_profit_multiplier, 2)
+                        product.sale_price = round(new_cost * settings.target_profit_multiplier, 2)
                         log.info("automation.cost_updated", name=product.name, new_cost=new_cost)
 
             await db.commit()
-            log.info("automation.inventory_sync.complete")
+            log.info("automation.inventory_sync.complete", synced=len(supplier_ids))
 
         except Exception as e:
             log.error("automation.inventory_sync.failed", error=str(e))
